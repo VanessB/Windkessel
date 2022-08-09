@@ -26,11 +26,11 @@ class WindkesselModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.R   = torch.nn.Parameter(torch.zeros(1, dtype=torch.float64))
-        self.Z_0 = torch.nn.Parameter(torch.zeros(1, dtype=torch.float64))
-        self.C   = torch.nn.Parameter(torch.zeros(1, dtype=torch.float64))
+        self.R   = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * 0.5)    # mmHg * s / mL
+        self.Z_0 = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * 0.0485) # mmHg * s / mL
+        self.C   = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * 2.27)   # mL / mmHg
 
-        self.P_out = torch.nn.Parameter(torch.zeros(1, dtype=torch.float64))
+        self.P_out = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * 33.2) # mmHg
 
         # Отсчёты по времени для графика.
         self.T = None
