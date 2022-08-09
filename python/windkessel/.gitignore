@@ -1,0 +1,13 @@
+# Байткоды и кэши (Python)
+__pycache__/
+*.py[cod]
+*$py.class
+*.swp
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Данные и билды
+data
+build
+doc
