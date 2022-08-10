@@ -31,19 +31,17 @@ def loop_function(func, x_min, x_max):
 
 
 
-class WindkesselModel(torch.nn.Module):
+class WindkesselBaseModel():
     """
     Модель windkessel.
     """
 
     def __init__(self):
-        super().__init__()
+        self.R = 0.5      # mmHg * s / mL
+        self.Z_0 = 0.0485 # mmHg * s / mL
+        self.C = 2.27     # mL / mmHg
 
-        self.R   = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * 0.5)    # mmHg * s / mL
-        self.Z_0 = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * 0.0485) # mmHg * s / mL
-        self.C   = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * 2.27)   # mL / mmHg
-
-        self.P_out = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * 33.2) # mmHg
+        self.P_out = 33.2 # mmHg
 
         # Отсчёты по времени для графика.
         self.T = None
@@ -65,8 +63,8 @@ class WindkesselModel(torch.nn.Module):
         self.P = new_P
         self.der_P = calc_der(self.T, self.P)
 
-        self.get_P = loop_function(interp1d(self.T, self.P), numpy.min(self.T), numpy.max(self.T))
-        self.get_der_P = loop_function(interp1d(self.T, self.der_P), numpy.min(self.T), numpy.max(self.T))
+        self.get_P = loop_function(interp1d(self.T, self.P), min(self.T), max(self.T))
+        self.get_der_P = loop_function(interp1d(self.T, self.der_P), min(self.T), max(self.T))
 
 
     def set_Q_in(self, new_T, new_Q_in):
@@ -78,8 +76,93 @@ class WindkesselModel(torch.nn.Module):
         self.Q_in = new_Q_in
         self.der_Q_in = calc_der(self.T, self.Q_in)
 
-        self.get_Q_in = loop_function(interp1d(self.T, self.Q_in), numpy.min(self.T), numpy.max(self.T))
-        self.get_der_Q_in = loop_function(interp1d(self.T, self.der_Q_in), numpy.min(self.T), numpy.max(self.T))
+        self.get_Q_in = loop_function(interp1d(self.T, self.Q_in), min(self.T), max(self.T))
+        self.get_der_Q_in = loop_function(interp1d(self.T, self.der_Q_in), min(self.T), max(self.T))
+
+
+    def P_rhs_(self, P, Q_in, der_Q_in):
+        """
+        Формула правой части для задачи dP / dt = ...
+        """
+
+        return (self.P_out - P + (self.Z_0 + self.R) * Q_in) / (self.R * self.C) + self.Z_0 * der_Q_in
+
+
+    def Q_in_rhs_(self, P, der_P, Q_in):
+        """
+        Формула правой части для задачи dQ_in / dt = ...
+        """
+
+        return (der_P + (P - self.P_out - (self.Z_0 + self.R) * Q_in) / (self.R * self.C)) / self.Z_0
+
+
+    def P_rhs(self, t, P):
+        """
+        Правая часть для задачи dP / dt = ...
+        """
+
+        raise NotImplementedError
+
+
+    def Q_in_rhs(self, t, Q_in):
+        """
+        Правая часть для задачи dQ_in / dt = ...
+        """
+
+        raise NotImplementedError
+
+
+
+class WindkesselModel(WindkesselBaseModel):
+    """
+    Модель windkessel, написанная на NumPy.
+    """
+
+    def __init__(self):
+        WindkesselBaseModel.__init__(self)
+
+
+    def P_rhs(self, t, P):
+        """
+        Правая часть для задачи dP / dt = ...
+        """
+
+        Q_in = self.get_Q_in(t)
+        der_Q_in = self.get_der_Q_in(t)
+
+        return self.P_rhs_(P, Q_in, der_Q_in)
+
+
+    def Q_in_rhs(self, t, Q_in):
+        """
+        Правая часть для задачи dQ_in / dt = ...
+        """
+
+        P = self.get_P(t)
+        der_P = self.get_der_P(t)
+
+        return self.Q_in_rhs_(P, der_P, Q_in)
+
+
+    def forward():
+        pass
+
+
+
+class WindkesselTorchModel(WindkesselBaseModel, torch.nn.Module):
+    """
+    Модель windkessel, написанная на PyTorch.
+    """
+
+    def __init__(self):
+        WindkesselBaseModel.__init__(self)
+        torch.nn.Module.__init__(self)
+
+        self.R   = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * self.R)
+        self.Z_0 = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * self.Z_0)
+        self.C   = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * self.C)
+
+        self.P_out = torch.nn.Parameter(torch.ones(1, dtype=torch.float64) * self.P_out)
 
 
     def P_rhs(self, t, P):
@@ -92,8 +175,7 @@ class WindkesselModel(torch.nn.Module):
         Q_in = torch.ones(1, dtype=torch.float64) * self.get_Q_in(t)
         der_Q_in = torch.ones(1, dtype=torch.float64) * self.get_der_Q_in(t)
 
-        result = (self.P_out - P + (self.Z_0 + self.R) * Q_in) / (self.R * self.C) + self.Z_0 * der_Q_in
-        return result
+        return self.P_rhs_(P, Q_in, der_Q_in)
 
 
     def Q_in_rhs(self, t, Q_in):
@@ -106,8 +188,7 @@ class WindkesselModel(torch.nn.Module):
         P = torch.ones(1, dtype=torch.float64) * self.get_P(t)
         der_P = torch.ones(1, dtype=torch.float64) * self.get_der_P(t)
 
-        result = (der_P + (P - self.P_out - (self.Z_0 + self.R) * Q_in) / (self.R * self.C)) / self.Z_0
-        return result
+        return self.Q_in_rhs_(P, der_P, Q_in)
 
 
     def forward():
