@@ -15,8 +15,7 @@ def calc_der(x, y):
     der_y[-1] = (y[-1] - y[-2]) / (x[-1] - x[-2])
 
     # Производные внутри.
-    for index in range(1, y.shape[0] - 1):
-        der_y[index] = (y[index + 1] - y[index - 1]) / (x[index + 1] - x[index - 1])
+    der_y[1:-1] = 0.5 * ( (y[1:-1] - y[0:-2]) / (x[1:-1] - x[0:-2]) + (y[2:] - y[1:-1]) / (x[2:] - x[1:-1]) )
 
     return der_y
 
@@ -40,15 +39,16 @@ def nonuniform_savgol_filter(x, y, n_points=None, calc_der=False, interp1d_param
     x = x[indexes]
     y = y[indexes]
 
-    # Получение шага сетки, если не задана.
+    # Получение размера сетки, если не задан.
+    length = x[-1] - x[0]
     if n_points is None:
-        # Шаг будет не меньше минимального шага по текущей сетке.
+        # Шаг будет не больше минимального шага по текущей сетке.
         delta = min(x[1:] - x[:-1])
 
         # Вычисляем число точек.
-        length = x[-1] - x[0]
         n_points = int(numpy.ceil(length / delta))
-        delta = length / n_points
+
+    delta = length / n_points
 
     # Интерполяция.
     interpolant = interp1d(x, y, assume_sorted=True, **interp1d_params)
