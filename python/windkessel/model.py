@@ -2,33 +2,7 @@ import torch
 import numpy
 from scipy.interpolate import interp1d
 
-
-def calc_der(T, X):
-    """
-    Вычисление первой производной по времени.
-    """
-
-    der_X = numpy.zeros_like(X)
-
-    # Производные на границах.
-    der_X[0] = (X[1] - X[0]) / (T[1] - T[0])
-    der_X[-1] = (X[-1] - X[-2]) / (T[-1] - T[-2])
-
-    # Производные внутри.
-    for index in range(1, X.shape[0] - 1):
-        der_X[index] = (X[index + 1] - X[index - 1]) / (T[index + 1] - T[index - 1])
-
-    return der_X
-
-
-
-def loop_function(func, x_min, x_max):
-    """
-    Зацикливание одномерной функции.
-    """
-
-    return lambda x : func((x - x_min) % (x_max - x_min) + x_min)
-
+from .utils import *
 
 
 class WindkesselBaseModel():
@@ -47,34 +21,40 @@ class WindkesselBaseModel():
         self.T = None
 
         # Графики.
-        self.P_ = None
-        self.der_P_ = None
+        self.P = None
+        self.der_P = None
 
-        self.Q_in_ = None
-        self.der_Q_in_ = None
+        self.Q_in = None
+        self.der_Q_in = None
 
 
-    def set_P(self, new_T, new_P):
+    def set_P(self, new_T, new_P, new_der_P=None):
         """
         Задание графика P.
         """
 
         self.T = new_T
         self.P = new_P
-        self.der_P = calc_der(self.T, self.P)
+        if new_der_P is None:
+            self.der_P = calc_der(self.T, self.P)
+        else:
+            self.der_P = new_der_P
 
         self.get_P = loop_function(interp1d(self.T, self.P), min(self.T), max(self.T))
         self.get_der_P = loop_function(interp1d(self.T, self.der_P), min(self.T), max(self.T))
 
 
-    def set_Q_in(self, new_T, new_Q_in):
+    def set_Q_in(self, new_T, new_Q_in, new_der_Q_in):
         """
         Задание графика Q_in.
         """
 
         self.T = new_T
         self.Q_in = new_Q_in
-        self.der_Q_in = calc_der(self.T, self.Q_in)
+        if new_der_P is None:
+            self.der_Q_in = calc_der(self.T, self.Q_in)
+        else:
+            self.der_Q_in = new_der_Q_in
 
         self.get_Q_in = loop_function(interp1d(self.T, self.Q_in), min(self.T), max(self.T))
         self.get_der_Q_in = loop_function(interp1d(self.T, self.der_Q_in), min(self.T), max(self.T))
