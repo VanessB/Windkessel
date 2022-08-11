@@ -30,7 +30,7 @@ def loop_function(func, x_min, x_max):
     return lambda x : func((x - x_min) % (x_max - x_min) + x_min)
 
 
-def nonuniform_savgol_filter(x, y, calc_der=False, delta=None, interp1d_params=None, savgol_filter_params=None):
+def nonuniform_savgol_filter(x, y, n_points=None, calc_der=False, interp1d_params=None, savgol_filter_params=None):
     """
     Фильтр Савицки-Голая для неравномерной сетки.
     """
@@ -41,12 +41,18 @@ def nonuniform_savgol_filter(x, y, calc_der=False, delta=None, interp1d_params=N
     y = y[indexes]
 
     # Получение шага сетки, если не задана.
-    if delta is None:
+    if n_points is None:
+        # Шаг будет не меньше минимального шага по текущей сетке.
         delta = min(x[1:] - x[:-1])
+
+        # Вычисляем число точек.
+        length = x[-1] - x[0]
+        n_points = int(numpy.ceil(length / delta))
+        delta = length / n_points
 
     # Интерполяция.
     interpolant = interp1d(x, y, assume_sorted=True, **interp1d_params)
-    uniform_x = numpy.linspace(x[0], x[-1])
+    uniform_x = numpy.linspace(x[0], x[-1], n_points)
     uniform_y = interpolant(uniform_x)
 
     # Сглаживание.
