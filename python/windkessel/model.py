@@ -45,14 +45,14 @@ class WindkesselBaseModel():
         self.get_der_P = loop_function(interp1d(self.T, self.der_P), min(self.T), max(self.T))
 
 
-    def set_Q_in(self, new_T, new_Q_in, new_der_Q_in):
+    def set_Q_in(self, new_T, new_Q_in, new_der_Q_in=None):
         """
         Задание графика Q_in.
         """
 
         self.T = new_T
         self.Q_in = new_Q_in
-        if new_der_P is None:
+        if new_der_Q_in is None:
             self.der_Q_in = calc_der(self.T, self.Q_in)
         else:
             self.der_Q_in = new_der_Q_in
