@@ -1,6 +1,7 @@
 import torch
 import numpy
 from scipy.interpolate import interp1d
+from scipy.optimize import curve_fit
 
 from .utils import *
 
@@ -101,37 +102,44 @@ class WindkesselBaseModel():
         Возвращает индекс, соответствующий времени максимального давления, а также само время.
         """
 
-        lvet_array = numpy.zeros_like(self.T)
-        for i in range(len(lvet_array)):
-            lvet_array[i] = self.der_P[i] * (0.5 - numpy.abs(0.5 - self.T[i] / self.T[-1])) ** 2
-
+        # Поиск взвешенного минимума производной dP / dt.
+        lvet_array = self.der_P * (0.5 - numpy.abs(0.5 - self.T / self.T[-1]))**2
         min_index = numpy.argmin(lvet_array)
+
         return min_index, self.T[min_index]
 
 
     @staticmethod
-    def diastole_exp_decay(t, P0, RC, P_out):
-        return P0 * numpy.exp(-t / RC) + P_out
-
-
-    @staticmethod
-    def diastole_exp_decay_without_P0(t, P_lvet, RC, P_out):
-        return (P_lvet - P_out) * numpy.exp(-t / RC) + P_out
+    def diastole_exp_decay(t, P_0, RC, P_out):
+        return P_0 * numpy.exp(-t / RC) + P_out
 
 
     def get_exp_param(self):
         """
-        Возвращает P0, RC, P_out
+        Возвращает P_0, R*C, P_out
         """
 
-        t0, _ = self.get_diastole_start()
-        RC = self.R  * self.C
-        #p0 = (self.P[t0] - self.P_out) * numpy.exp(self.T[t0] / RC)
-        P0 = self.P_out
-        #fit_param, fit_covariance = curve_fit(self.diastole_exp_decay, self.T[t0:], self.P[t0:], p0 = [P0, RC, self.P_out])
+        # Время начала диастолы.
+        ds_index, ds_time = self.get_diastole_start()
+        #ds_index += (self.T.shape[0] - ds_index) // 5
+
+        # Оценки параметров.
+        RC = self.R * self.C
+        P_0 = (self.P[ds_index] - self.P_out) * numpy.exp(self.T[ds_index] / RC)
+        #P_0 = self.P_out
+        #p_lvet = self.P[ds_index]
+
+        # Подгон кривой по МНК.
+        fit_param, fit_covariance = curve_fit(self.diastole_exp_decay, self.T[ds_index:], self.P[ds_index:], p0=[P_0, RC, self.P_out])
         #fit_param, fit_covariance = curve_fit(lambda x, a, c: parabola(x, a, b_fixed, c), x, y)
-        p_lvet = self.P[t0]
-        fit_param, _ = curve_fit(lambda t, RC, P_out: self.diastole_exp_decay_without_P0(t, p_lvet, RC, P_out), self.T[t0:], self.P[t0:], p0 = [RC, self.P_out])
+        #fit_param, _ = curve_fit(lambda t, RC, P_out: self.diastole_exp_decay_without_P0(t, p_lvet, RC, P_out), self.T[t0:], self.P[t0:], p0 = [RC, self.P_out])
+
+        # Проверка корректности.
+        if fit_param[2] <= 0.0:
+            diastole_exp_decay_without_P_out = lambda t, P_0, RC : self.diastole_exp_decay(t, P_0, RC, self.P_out)
+            fit_param, fit_covariance = curve_fit(diastole_exp_decay_without_P_out, self.T[ds_index:], self.P[ds_index:], p0=[P_0, RC])
+            fit_param = numpy.append(fit_param, self.P_out)
+
         return fit_param
 
 
