@@ -1,5 +1,7 @@
 import torch
 import numpy
+
+from scipy.integrate import simps
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
 
@@ -45,14 +47,14 @@ class WindkesselBaseModel():
         self.get_der_P = loop_function(interp1d(self.T, self.der_P), min(self.T), max(self.T))
 
 
-    def set_Q_in(self, new_T, new_Q_in, new_der_Q_in):
+    def set_Q_in(self, new_T, new_Q_in, new_der_Q_in=None):
         """
         Задание графика Q_in.
         """
 
         self.T = new_T
         self.Q_in = new_Q_in
-        if new_der_P is None:
+        if new_der_Q_in is None:
             self.der_Q_in = calc_der(self.T, self.Q_in)
         else:
             self.der_Q_in = new_der_Q_in
@@ -99,14 +101,28 @@ class WindkesselBaseModel():
 
     def get_diastole_start(self):
         """
-        Возвращает индекс, соответствующий времени максимального давления, а также само время.
+        Возвращает индекс, соответствующий времени начала диастолы, а также само время.
         """
 
         # Поиск взвешенного минимума производной dP / dt.
         lvet_array = self.der_P * (0.5 - numpy.abs(0.5 - self.T / self.T[-1]))**2
-        min_index = numpy.argmin(lvet_array)
+        ds_index = numpy.argmin(lvet_array)
 
-        return min_index, self.T[min_index]
+        return ds_index, self.T[ds_index]
+
+
+    def get_exp_decay_start(self):
+        """
+        Возвращает индекс, соответствующий времени начала экспоненциального убывания, а также само время.
+        """
+
+        ds_index, ds_time = self.get_diastole_start()
+
+        eds_time = (2.0 * ds_time + self.T[-1]) / 3.0
+        eds_index = numpy.searchsorted(self.T, eds_time)
+        eds_time = self.T[eds_index]
+
+        return eds_index, eds_time
 
 
     @staticmethod
@@ -119,28 +135,51 @@ class WindkesselBaseModel():
         Возвращает P_0, R*C, P_out
         """
 
-        # Время начала диастолы.
-        ds_index, ds_time = self.get_diastole_start()
-        #ds_index += (self.T.shape[0] - ds_index) // 5
+        # Время начала экспоненциального спада.
+        eds_index, eds_time = self.get_exp_decay_start()
 
         # Оценки параметров.
         RC = self.R * self.C
-        P_0 = (self.P[ds_index] - self.P_out) * numpy.exp(self.T[ds_index] / RC)
+        P_0 = (self.P[eds_index] - self.P_out) * numpy.exp(self.T[eds_index] / RC)
         #P_0 = self.P_out
         #p_lvet = self.P[ds_index]
 
         # Подгон кривой по МНК.
-        fit_param, fit_covariance = curve_fit(self.diastole_exp_decay, self.T[ds_index:], self.P[ds_index:], p0=[P_0, RC, self.P_out])
-        #fit_param, fit_covariance = curve_fit(lambda x, a, c: parabola(x, a, b_fixed, c), x, y)
-        #fit_param, _ = curve_fit(lambda t, RC, P_out: self.diastole_exp_decay_without_P0(t, p_lvet, RC, P_out), self.T[t0:], self.P[t0:], p0 = [RC, self.P_out])
+        fit_param, fit_covariance = curve_fit(self.diastole_exp_decay, self.T[eds_index:], self.P[eds_index:], p0=[P_0, RC, self.P_out])
 
         # Проверка корректности.
         if fit_param[2] <= 0.0:
-            diastole_exp_decay_without_P_out = lambda t, P_0, RC : self.diastole_exp_decay(t, P_0, RC, self.P_out)
-            fit_param, fit_covariance = curve_fit(diastole_exp_decay_without_P_out, self.T[ds_index:], self.P[ds_index:], p0=[P_0, RC])
-            fit_param = numpy.append(fit_param, self.P_out)
+            # Фиксированное значение P_out
+            fixed_P_out = 0.0
+            #fixed_P_out = self.P_out
+
+            # Подгоняемая функция с фиксированным значением.
+            diastole_exp_decay_without_P_out = lambda t, P_0, RC : self.diastole_exp_decay(t, P_0, RC, fixed_P_out)
+
+            fit_param, fit_covariance = curve_fit(diastole_exp_decay_without_P_out, self.T[eds_index:], self.P[eds_index:], p0=[P_0, RC])
+            fit_param = numpy.append(fit_param, fixed_P_out)
 
         return fit_param
+
+
+    def get_C_from_SV(self, SV):
+        """
+        Получение C по сердечному выбросу.
+        """
+
+        pulse_pressure = max(self.P) - min(self.P)
+        return pulse_pressure / SV
+
+
+    def get_R_from_SV(self, SV):
+        """
+        Получение C по сердечному выбросу.
+        """
+
+        mean_Q_in = SV / (self.T[-1] - self.T[0])
+        mean_P = simps(self.P, self.T)
+
+        return (mean_P - self.P_out) / mean_Q_in
 
 
 
