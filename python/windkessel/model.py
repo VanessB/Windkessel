@@ -266,7 +266,7 @@ class WindkesselBaseModel():
 
         synthetic_P = result.y[0]
 
-        value = numpy.sqrt(simps((P - synthetic_P)**2, T))
+        value = simps((P - synthetic_P)**2, T)
         return value
 
 
