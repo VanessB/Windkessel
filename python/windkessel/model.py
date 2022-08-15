@@ -37,13 +37,20 @@ class WindkesselBaseModel():
         Задание графика P.
         """
 
-        self.T = new_T
-        self.P = new_P
+        # Сортировка.
+        indexes = numpy.argsort(new_T)
+
+        # Задание массивов.
+        self.T = new_T[indexes]
+        self.P = new_P[indexes]
+
+        # Вычисление производной.
         if new_der_P is None:
             self.der_P = calc_der(self.T, self.P)
         else:
-            self.der_P = new_der_P
+            self.der_P = new_der_P[indexes]
 
+        # Интерполяция и зацикливание.
         self.get_P = loop_function(interp1d(self.T, self.P), min(self.T), max(self.T))
         self.get_der_P = loop_function(interp1d(self.T, self.der_P), min(self.T), max(self.T))
 
@@ -53,13 +60,20 @@ class WindkesselBaseModel():
         Задание графика Q_in.
         """
 
-        self.T = new_T
-        self.Q_in = new_Q_in
+        # Сортировка.
+        indexes = numpy.argsort(new_T)
+
+        # Задание массивов.
+        self.T = new_T[indexes]
+        self.Q_in = new_Q_in[indexes]
+
+        # Вычисление производной.
         if new_der_Q_in is None:
             self.der_Q_in = calc_der(self.T, self.Q_in)
         else:
-            self.der_Q_in = new_der_Q_in
+            self.der_Q_in = new_der_Q_in[indexes]
 
+        # Интерполяция и зацикливание.
         self.get_Q_in = loop_function(interp1d(self.T, self.Q_in), min(self.T), max(self.T))
         self.get_der_Q_in = loop_function(interp1d(self.T, self.der_Q_in), min(self.T), max(self.T))
 
@@ -96,20 +110,58 @@ class WindkesselBaseModel():
         raise NotImplementedError
 
 
-    ########################
-    ## ПОДБОР ПАРАМЕТРОВ. ##
-    ########################
 
-    def get_diastole_start(self):
+    #######################
+    ## ПОДБОР ПАРАМЕТРОВ ##
+    #######################
+
+    # Методы изстатьи.
+    def get_LVET_LV1_(self):
+        """
+        Получение LVET методом (LV1).
+        DOI: 10.1152/ajpheart.00241.2020
+        """
+
+        ds_index = numpy.argmin(self.der_P)
+
+        return ds_index, self.T[ds_index]
+
+
+    def get_LVET_LV2_(self):
+        """
+        Получение LVET методом (LV2).
+        DOI: 10.1152/ajpheart.00241.2020
+        """
+
+        lvet_array = self.der_P * (0.5 - numpy.abs(0.5 - self.T / self.T[-1]))**2
+        ds_index = numpy.argmin(lvet_array)
+
+        return ds_index, self.T[ds_index]
+
+
+    # "Мастер-функция."
+    def get_LVET(self, method="weighted"):
         """
         Возвращает индекс, соответствующий времени начала диастолы, а также само время.
         """
 
         # Поиск взвешенного минимума производной dP / dt.
-        lvet_array = self.der_P * (0.5 - numpy.abs(0.5 - self.T / self.T[-1]))**2
-        ds_index = numpy.argmin(lvet_array)
+        if method == "derivative":
+            return self.get_LVET_LV1_()
+        elif method == "weighted":
+            return self.get_LVET_LV2_()
+        else:
+            raise NotImplementedError
 
-        return ds_index, self.T[ds_index]
+
+    def get_SV(self, get_LVET_options={}):
+        """
+        Возвращает ударный объём, полученный интегрированием Q_in(t) от начала и до LVET.
+        """
+
+        LVET_index, LVET = self.get_LVET(**get_LVET_options)
+
+        return simps(self.Q_in[:LVET_index], self.T[:LVET_index])
 
 
     def get_exp_decay_start(self):
@@ -117,9 +169,9 @@ class WindkesselBaseModel():
         Возвращает индекс, соответствующий времени начала экспоненциального убывания, а также само время.
         """
 
-        ds_index, ds_time = self.get_diastole_start()
+        LVET_index, LVET = self.get_LVET()
 
-        eds_time = (2.0 * ds_time + self.T[-1]) / 3.0
+        eds_time = (2.0 * LVET + self.T[-1]) / 3.0
         eds_index = numpy.searchsorted(self.T, eds_time)
         eds_time = self.T[eds_index]
 
@@ -142,8 +194,6 @@ class WindkesselBaseModel():
         # Оценки параметров.
         RC = self.R * self.C
         P_0 = (self.P[eds_index] - self.P_out) * numpy.exp(self.T[eds_index] / RC)
-        #P_0 = self.P_out
-        #p_lvet = self.P[ds_index]
 
         # Подгон кривой по МНК.
         fit_param, fit_covariance = curve_fit(self.diastole_exp_decay, self.T[eds_index:], self.P[eds_index:], p0=[P_0, RC, self.P_out])
