@@ -122,9 +122,9 @@ class WindkesselBaseModel():
         DOI: 10.1152/ajpheart.00241.2020
         """
 
-        ds_index = numpy.argmin(self.der_P)
+        LVET_index = numpy.argmin(self.der_P)
 
-        return ds_index, self.T[ds_index]
+        return self.T[LVET_index]
 
 
     def get_LVET_LV2_(self):
@@ -133,10 +133,69 @@ class WindkesselBaseModel():
         DOI: 10.1152/ajpheart.00241.2020
         """
 
-        lvet_array = self.der_P * (0.5 - numpy.abs(0.5 - self.T / self.T[-1]))**2
-        ds_index = numpy.argmin(lvet_array)
+        LVET_array = self.der_P * (0.5 - numpy.abs(0.5 - self.T / self.T[-1]))**2
+        LVET_index = numpy.argmin(LVET_array)
 
-        return ds_index, self.T[ds_index]
+        return self.T[LVET_index]
+
+
+    def get_LVET_LV4_(self):
+        """
+        Получает Left Ventricular Ejection Time путём анализа графика потока от времени.
+        Метод LV4 из статьи.
+        DOI: 10.1152/ajpheart.00241.2020
+        """
+
+        # Подсчёт середины сердечного цикла
+        t_mid = self.T[-1]/2 + self.T[0]
+
+        # Инициализация
+        t_change = self.T[-1]
+        t_zero = self.T[-1]
+        t_loc_max = self.T[-1]
+        if_small = 1
+
+        # Поиск глобальных максимума и минимума
+        Q_in_max = numpy.max(self.Q_in)
+        num_max = numpy.argmax(self.Q_in)
+
+        num_mid = numpy.searchsorted(self.T, t_mid, side='right')
+
+        t_min = self.T[num_max + numpy.argmin(self.Q_in[num_max:num_mid])]
+
+        # Начало отсчёта
+        index = num_max + numpy.argmin(self.Q_in[num_max:num_mid])
+
+        while self.T[index] <= t_mid:
+            # Проверяет, меньше ли Q текущее (по модулю), чем 1% максимума
+            if_small = if_small and (Q_in_max * 0.01 > abs(self.Q_in[index]))
+
+            # Ловит первую перемену знака
+            if ((self.Q_in[index-1] < 0) and (self.Q_in[index] > 0) and (t_change == self.T[-1])):
+                t_change = self.T[index]
+
+            # Ловит первый ноль
+            if ((self.Q_in[index] == 0) and (t_zero == self.T[-1])):
+                t_zero = self.T[index]
+
+            # Ловит первый локальный максимум
+            if ((self.Q_in[index-1] < self.Q_in[index]) and \
+                    (self.Q_in[index] > self.Q_in[index+1]) and \
+                    (t_loc_max == self.T[-1])):
+                t_loc_max = self.T[index]
+
+            index += 1
+
+        if (if_small == 1):
+            LVET = t_min
+        else:
+            if ((t_change == self.T[-1]) and (t_zero == self.T[-1]) and (t_loc_max == self.T[-1])):
+                LVET = 0.37 * numpy.sqrt(self.T[-1])
+            else:
+                LVET = min(t_change, t_zero, t_loc_max)
+
+
+        return LVET_index, LVET
 
 
     # "Мастер-функция."
@@ -150,6 +209,8 @@ class WindkesselBaseModel():
             return self.get_LVET_LV1_()
         elif method == "weighted":
             return self.get_LVET_LV2_()
+        elif method == "from Q":
+            return self.get_LVET_LV4_()
         else:
             raise NotImplementedError
 
@@ -159,7 +220,8 @@ class WindkesselBaseModel():
         Возвращает ударный объём, полученный интегрированием Q_in(t) от начала и до LVET.
         """
 
-        LVET_index, LVET = self.get_LVET(**get_LVET_options)
+        LVET = self.get_LVET(**get_LVET_options)
+        LVET_index = numpy.searchsorted(self.T, LVET)
 
         return simps(self.Q_in[:LVET_index], self.T[:LVET_index])
 
@@ -169,8 +231,9 @@ class WindkesselBaseModel():
         Возвращает индекс, соответствующий времени начала экспоненциального убывания, а также само время.
         """
 
-        LVET_index, LVET = self.get_LVET()
+        LVET = self.get_LVET()
 
+        # Сдвиг вправо.
         eds_time = (2.0 * LVET + self.T[-1]) / 3.0
         eds_index = numpy.searchsorted(self.T, eds_time)
         eds_time = self.T[eds_index]
@@ -299,6 +362,39 @@ class WindkesselBaseModel():
         result = minimize(self.P_functional, x0=x0, args=(self.T, self.P, solve_ivp_params), bounds=bounds, **scipy_minimize_params)
 
         return result
+
+
+    def get_P_out_OP3_(self):
+        """
+        Получает давление на выходе из диастолического. Метод OP3 из статьи
+        """
+
+        DBP = numpy.min(self.P)
+
+        return 0.7 * DBP
+
+
+    def get_R_AR2_(self):
+        """
+        Получает сопротивление артерий с помощью взвешенного среднего давления. Метод AR2 из статьи
+        """
+
+        Q_in_mean = simps(self.Q_in, self.T)/(self.T[-1] - self.T[0])
+
+        SBP = numpy.max(self.P)
+        DBP = numpy.min(self.P)
+
+        MBP = 0.4 * SBP + 0.6 * DBP
+
+        return (MBP - self.P_out)/Q_in_mean
+
+
+    def get_Z_0_Z3_(self):
+        """
+        Получает импеданс через сопротивление артерий. Метод Z3 из статьи
+        """
+
+        return 0.05 * self.R
 
 
 
