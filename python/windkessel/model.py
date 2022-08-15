@@ -235,6 +235,11 @@ class WindkesselBaseModel():
         """
         Получает растяжимость артерий //как-то очень сложно//. Метод AC7 из статьи
         """        
+        SBP = numpy.max(self.P)
+        DBP = numpy.min(self.P)
+        
+        PP = SBP - DBP
+        
         raise NotImplementedError
         
         
