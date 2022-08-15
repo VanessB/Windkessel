@@ -2,6 +2,7 @@ import torch
 import numpy
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
+from scipy.integrate import simps
 
 from .utils import *
 
@@ -216,12 +217,18 @@ class WindkesselBaseModel():
         return 0.7 * DBP
         
         
-    def get_arterial_resistance_weighted (self):
+    def get_arterial_resistance_AR2(self):
         """
         Получает сопротивление артерий с помощью взвешенного среднего давления. Метод AR2 из статьи
         """
-        #Q_mean = numpy.
-        raise NotImplementedError
+        Q_in_mean = simps(self.Q_in, self.T)/(self.T[-1] - self.T[0])
+        
+        SBP = numpy.max(self.P)
+        DBP = numpy.min(self.P)
+        
+        MBP = 0.4 * SBP + 0.6 * DBP
+        
+        return (MBP - self.P_out)/Q_in_mean
         
         
     def AC7_selection (self):
@@ -231,7 +238,7 @@ class WindkesselBaseModel():
         raise NotImplementedError
         
         
-    def get_impedance_Z3 (self):
+    def get_impedance_Z3(self):
         """
         Получает импеданс через сопротивление артерий. Метод Z3 из статьи
         """       
