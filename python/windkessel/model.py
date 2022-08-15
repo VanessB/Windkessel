@@ -1,11 +1,12 @@
 import torch
 import numpy
 
-from scipy.integrate import simps
+from scipy.integrate import simps, solve_ivp
 from scipy.interpolate import interp1d
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, minimize
 
 from .utils import *
+from .synthetic import SyntheticArtery
 
 
 class WindkesselBaseModel():
@@ -158,8 +159,9 @@ class WindkesselBaseModel():
 
             fit_param, fit_covariance = curve_fit(diastole_exp_decay_without_P_out, self.T[eds_index:], self.P[eds_index:], p0=[P_0, RC])
             fit_param = numpy.append(fit_param, fixed_P_out)
+            fit_covariance = numpy.append(fit_param, 0.0)
 
-        return fit_param
+        return fit_param, fit_covariance
 
 
     def get_C_from_SV(self, SV):
@@ -180,6 +182,73 @@ class WindkesselBaseModel():
         mean_P = simps(self.P, self.T)
 
         return (mean_P - self.P_out) / mean_Q_in
+
+
+    @staticmethod
+    def P_functional(x, T, P, solve_ivp_params={}):
+        """
+        Функционал невязки между заданным и синтетическим P.
+        """
+
+        # Сдвиг временной сетки в нулевую точку.
+        T = T - T[0]
+
+        # Модель windkessel.
+        windkessel_model = WindkesselModel()
+        windkessel_model.set_P(T, P)
+
+        # Генератор синтетических данных.
+        synhetic_artery = SyntheticArtery()
+
+        # Задание параметров.
+        synhetic_artery.T_max, synhetic_artery.T_s, synhetic_artery.T_d, \
+                synhetic_artery.Q_max, synhetic_artery.R_f, windkessel_model.R, \
+                windkessel_model.Z_0, windkessel_model.C, windkessel_model.P_out = x
+        synhetic_artery.T = T[-1]
+
+        # Синтетическое Q_in(t).
+        synthetic_Q_in = numpy.array([synhetic_artery.get_Q_in(t) for t in T])
+        windkessel_model.set_Q_in(T, synthetic_Q_in)
+
+        # Синтетическое P(t).
+        result = solve_ivp(lambda t, p : windkessel_model.P_rhs(t, p), (T[0], T[-1]), numpy.array([P[0]]),
+                       t_eval=T, **solve_ivp_params)
+
+        synthetic_P = result.y[0]
+
+        value = numpy.sqrt(simps((P - synthetic_P)**2, T))
+        return value
+
+
+    def get_synthetic_artery_params(self, x0=None, bounds=None, n_points=100, scipy_minimize_params={"tol": 1e-7}, solve_ivp_params={}):
+        """
+        Получение параметров модели и синтетической артерии путём минимизации
+        среднего квадрата отклонения измеренного и синтетического P(t).
+        """
+
+        if x0 is None:
+            # TODO: убрать константы.
+            x0 = numpy.array([0.09, 0.33, 0.35, 370.0, 0.3, self.R, self.Z_0, self.C, self.P_out])
+
+        if bounds is None:
+            # TODO: убрать константы.
+            bounds = [
+                (0.0, 0.2),
+                (0.2, 0.4),
+                (0.2, 0.4),
+                (200.0, 2000.0),
+                (0.0, 0.5),
+                (0.2, 0.8),
+                (0.02, 0.2),
+                (0.1, 4.0),
+                (0.0, 200.0)
+            ]
+
+        solve_ivp_params["rtol"] = 1.0
+        solve_ivp_params["max_step"] = (self.T[-1] - self.T[0]) / n_points
+        result = minimize(self.P_functional, x0=x0, args=(self.T, self.P, solve_ivp_params), bounds=bounds, **scipy_minimize_params)
+
+        return result
 
 
 
