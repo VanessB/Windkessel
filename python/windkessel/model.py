@@ -143,7 +143,7 @@ class WindkesselBaseModel():
         return fit_param
 
 
-    def get_lvet_from_Q(self):
+    def get_lvet_LV4(self):
         """
         Получает Left Ventricular Ejection Time путём анализа графика потока от времени. Метод LV4 из статьи
         """
@@ -231,12 +231,11 @@ class WindkesselBaseModel():
         raise NotImplementedError
         
         
-    def get_impedance_from_resistance (self):
+    def get_impedance_Z3 (self):
         """
         Получает импеданс через сопротивление артерий. Метод Z3 из статьи
-        """        
-        #return 0.05 * RT
-        raise NotImplementedError
+        """       
+        return 0.05 * self.R
     
     
 class WindkesselModel(WindkesselBaseModel):
