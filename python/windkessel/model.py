@@ -108,7 +108,7 @@ class WindkesselBaseModel():
 
         return min_index, self.T[min_index]
 
-
+    
     @staticmethod
     def diastole_exp_decay(t, P_0, RC, P_out):
         return P_0 * numpy.exp(-t / RC) + P_out
@@ -143,7 +143,101 @@ class WindkesselBaseModel():
         return fit_param
 
 
-
+    def get_lvet_from_Q(self):
+        """
+        Получает Left Ventricular Ejection Time путём анализа графика потока от времени. Метод LV4 из статьи
+        """
+        # Подсчёт середины сердечного цикла
+        t_mid = self.T[-1]/2 + self.T[0]
+        
+        # Инициализация
+        t_change = self.T[-1]
+        t_zero = self.T[-1]
+        t_loc_max = self.T[-1]
+        if_small = 1
+        
+        # Поиск глобальных максимума и минимума
+        Q_in_max = numpy.max(self.Q_in)
+        num_max = numpy.argmax(self.Q_in)
+        
+        num_mid = numpy.searchsorted(self.T, t_mid, side='right')
+        
+        t_min = self.T[num_max + numpy.argmin(self.Q_in[num_max:num_mid])]
+        #print(t_min)
+        #print(t_mid)
+        
+        # Начало отсчёта
+        index = num_max + numpy.argmin(self.Q_in[num_max:num_mid])
+        
+        while (self.T[index] <= t_mid):
+            
+            # Проверяет, меньше ли Q текущее (по модулю), чем 1% максимума
+            if_small = if_small and (Q_in_max * 0.01 > abs(self.Q_in[index]))
+            
+            #print(index, ", ", if_small)
+            
+            # Ловит первую перемену знака
+            if ((self.Q_in[index-1] < 0) and (self.Q_in[index] > 0) and (t_change == self.T[-1])):
+                t_change = self.T[index]
+            
+            # Ловит первый ноль
+            if ((self.Q_in[index] == 0) and (t_zero == self.T[-1])):
+                t_zero = self.T[index]
+            
+            # Ловит первый локальный максимум
+            if ((self.Q_in[index-1] < self.Q_in[index]) and \
+                    (self.Q_in[index] > self.Q_in[index+1]) and \
+                    (t_loc_max == self.T[-1])):
+                t_loc_max = self.T[index]
+                
+            index += 1
+        
+        if (if_small == 1):
+            #print("min")
+            lvet = t_min
+        else:
+            if ((t_change == self.T[-1]) and (t_zero == self.T[-1]) and (t_loc_max == self.T[-1])):
+                #print("LV3")
+                lvet = 0.37 * numpy.sqrt(self.T[-1])
+            else:
+                #print("choose")
+                lvet = min(t_change, t_zero, t_loc_max)
+                
+        return lvet
+        
+        
+    def get_outflow_pressure_from_dbp (self):
+        """
+        Получает давление на выходе из диастолического. Метод OP3 из статьи
+        """
+        
+        #return 0.7 * DBP
+        raise NotImplemenderError
+        
+        
+    def get_arterial_resistance_weighted (self):
+        """
+        Получает сопротивление артерий с помощью взвешенного среднего давления. Метод AR2 из статьи
+        """
+        #Q_mean = numpy.
+        raise NotImplementedError
+        
+        
+    def AC7_selection (self):
+        """
+        Получает растяжимость артерий //как-то очень сложно//. Метод AC7 из статьи
+        """        
+        raise NotImplementedError
+        
+        
+    def get_impedance_from_resistance (self):
+        """
+        Получает импеданс через сопротивление артерий. Метод Z3 из статьи
+        """        
+        #return 0.05 * RT
+        raise NotImplementedError
+    
+    
 class WindkesselModel(WindkesselBaseModel):
     """
     Модель windkessel, написанная на NumPy.
