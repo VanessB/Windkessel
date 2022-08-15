@@ -206,13 +206,14 @@ class WindkesselBaseModel():
         return lvet
         
         
-    def get_outflow_pressure_from_dbp (self):
+    def get_outflow_pressure_OP3(self):
         """
         Получает давление на выходе из диастолического. Метод OP3 из статьи
         """
+        DBP = numpy.min(self.P)
+        #print(DBP)
         
-        #return 0.7 * DBP
-        raise NotImplemenderError
+        return 0.7 * DBP
         
         
     def get_arterial_resistance_weighted (self):
